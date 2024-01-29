@@ -40,6 +40,9 @@ dependencies:
   http: ^1.1.2
   file_picker: ^6.1.1
   http_parser: ^4.0.2
+  dio: ^4.0.0
+  image: ^3.0.1
+
 
 dev_dependencies:
   flutter_test:

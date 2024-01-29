@@ -6,12 +6,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:http_parser/http_parser.dart';
+import 'package:dio/dio.dart';
+import 'dart:async';
+import 'dart:convert';
+import 'package:flutter/foundation.dart' show kReleaseMode;
+import 'package:dio/dio.dart';
 
 class AppData with ChangeNotifier {
-  // Access appData globaly with:
-  // AppData appData = Provider.of<AppData>(context);
-  // AppData appData = Provider.of<AppData>(context, listen: false)
-
   bool loadingGet = false;
   bool loadingPost = false;
   bool loadingFile = false;
@@ -21,72 +22,62 @@ class AppData with ChangeNotifier {
   dynamic dataFile;
 
   List<String> messages = [];
-  String recivido = '';
-  String enviado = 'respuesta';
-  List<String> obtenerTodasLasClaves(Map<String, dynamic> jsonResponse) {
-    return jsonResponse.keys.toList();
-  }
 
-  final StreamController<String> _messageController =
-      StreamController<String>();
-  Stream<String> get messageStream => _messageController.stream;
+  StreamController<String> _textStreamController =
+      StreamController<String>.broadcast();
+  Stream<String> get textStream => _textStreamController.stream;
+
+  void enviarTextoPocoAPoco(String texto,
+      {int duration = 100, int initialDelay = 0}) async {
+    await Future.delayed(Duration(milliseconds: initialDelay));
+
+    for (int i = 0; i < texto.length; i++) {
+      _textStreamController.add(texto.substring(0, i + 1));
+      await Future.delayed(Duration(milliseconds: duration));
+    }
+  }
 
   void sendMessage(String message) {
     messages.add(message);
-    recivido = message;
-    enviarJSON(recivido);
-    respueta(enviado);
     notifyListeners();
   }
 
-  void respueta(String message) {
+  void respueta(String message) async {
     messages.add(message);
+    notifyListeners();
+
+    // Espera un breve momento antes de comenzar a enviar el texto poco a poco
+    await Future.delayed(Duration(milliseconds: 500));
+
+    // Envia el texto poco a poco
+    enviarTextoPocoAPoco(message, duration: 50);
   }
 
-  void enviarJSON(String message) async {
-    final String url =
-        'http://localhost:3000/data'; // Reemplaza con tu URL y ruta
+  Future<void> enviarJSON(String message) async {
+    final String url = 'http://localhost:3000/data';
     final Map<String, dynamic> data = {
       'type': 'test',
       'data': '{"type":"test", "mensaje":"${message}"}',
-      // Puedes enviar datos adicionales aquí
     };
 
     try {
-      final response = await http.post(
-        Uri.parse(url),
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode(data),
+      final Dio dio = Dio();
+      final Response response = await dio.post(
+        url,
+        options: Options(
+          headers: {'Content-Type': 'application/json'},
+        ),
+        data: data,
       );
 
       if (response.statusCode == 200) {
-        var jsonResponse = json.decode(response.body);
-
-        try {
-          // Tratar de parsear el valor de "response" como una lista de objetos JSON
-          List<dynamic> responseList = json.decode(jsonResponse['response']);
-
-          for (var responseObject in responseList) {
-            var responseValue = responseObject['response'];
-            var doneValue = responseObject['done'];
-
-            print('Response: $responseValue');
-            print('Done: $doneValue');
-          }
-        } catch (e) {
-          print('Error al parsear la respuesta: $e');
-          print('Respuesta completa: ${jsonResponse['response']}');
-        }
+        respueta(response.data);
       } else {
         print('Error en la solicitud: ${response.statusCode}');
       }
     } catch (error) {
       print('Error en la solicitud: $error');
     }
-  }
-
-  void registerMessageListener(void Function(String) listener) {
-    _messageController.stream.listen(listener);
   }
 
   // Funció per fer crides tipus 'GET' i agafar la informació a mida que es va rebent
@@ -125,30 +116,27 @@ class AppData with ChangeNotifier {
   // Funció per fer crides tipus 'POST' amb un arxiu adjunt,
   //i agafar la informació a mida que es va rebent
   Future<String> loadHttpPostByChunks(String url, File file) async {
-    var request = http.MultipartRequest('POST', Uri.parse(url));
+    try {
+      final Dio dio = Dio();
+      final response = await dio.post(
+        url,
+        data: FormData.fromMap({
+          'file': await MultipartFile.fromFile(
+            file.path,
+            filename: 'image.jpg',
+          ),
+        }),
+      );
 
-    // Afegir les dades JSON com a part del formulari
-    request.fields['data'] = '{"type":"test"}';
-
-    // Adjunta l'arxiu com a part del formulari
-    var stream = http.ByteStream(file.openRead());
-    var length = await file.length();
-    var multipartFile = http.MultipartFile('file', stream, length,
-        filename: file.path.split('/').last,
-        contentType: MediaType('application', 'octet-stream'));
-    request.files.add(multipartFile);
-
-    var response = await request.send();
-
-    if (response.statusCode == 200) {
-      // La sol·licitud ha estat exitosa
-      var responseData = await response.stream.toBytes();
-      var responseString = utf8.decode(responseData);
-      return responseString;
-    } else {
-      // La sol·licitud ha fallat
-      throw Exception(
-          "Error del servidor (appData/loadHttpPostByChunks): ${response.reasonPhrase}");
+      if (response.statusCode == 200) {
+        return response.data.toString();
+      } else {
+        print('Error en la solicitud: ${response.statusCode}');
+        return 'Error en la solicitud: ${response.statusCode}';
+      }
+    } catch (error) {
+      print('Error en la solicitud: $error');
+      return 'Error en la solicitud: $error';
     }
   }
 
@@ -165,37 +153,6 @@ class AppData with ChangeNotifier {
       return jsonData;
     } catch (e) {
       throw Exception("Excepció (appData/readJsonAsset): $e");
-    }
-  }
-
-  // Carregar dades segons el tipus que es demana
-  void load(String type, {File? selectedFile}) async {
-    switch (type) {
-      case 'GET':
-        loadingGet = true;
-        notifyListeners();
-        await loadHttpGetByChunks(
-            'http://localhost:3000/llistat?cerca=motos&color=vermell');
-        loadingGet = false;
-        notifyListeners();
-        break;
-      case 'POST':
-        loadingPost = true;
-        notifyListeners();
-        await loadHttpPostByChunks('http://localhost:3000/data', selectedFile!);
-        loadingPost = false;
-        notifyListeners();
-        break;
-      case 'FILE':
-        loadingFile = true;
-        notifyListeners();
-
-        var fileData = await readJsonAsset("assets/data/example.json");
-
-        loadingFile = false;
-        dataFile = fileData;
-        notifyListeners();
-        break;
     }
   }
 }
