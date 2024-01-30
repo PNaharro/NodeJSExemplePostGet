@@ -80,6 +80,30 @@ class AppData with ChangeNotifier {
     }
   }
 
+  Future<void> enviarIMGJSON(String base64Image) async {
+    final String url = 'http://localhost:3000/data';
+    final Map<String, dynamic> data = {
+      'type': 'test',
+      'data': '{"type":"image", "image":"${base64Image}"}',
+    };
+
+    try {
+      final response = await http.post(
+        Uri.parse(url),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode(data),
+      );
+
+      if (response.statusCode == 200) {
+        respueta(response.body);
+      } else {
+        print('Error en la solicitud: ${response.statusCode}');
+      }
+    } catch (error) {
+      print('Error en la solicitud: $error');
+    }
+  }
+
   // Funció per fer crides tipus 'GET' i agafar la informació a mida que es va rebent
   Future<void> loadHttpGetByChunks(String url) async {
     var httpClient = HttpClient();
@@ -115,17 +139,13 @@ class AppData with ChangeNotifier {
 
   // Funció per fer crides tipus 'POST' amb un arxiu adjunt,
   //i agafar la informació a mida que es va rebent
-  Future<String> loadHttpPostByChunks(String url, File file) async {
+  Future<String> loadHttpPostByChunksWithBase64(
+      String url, String base64Image) async {
     try {
       final Dio dio = Dio();
       final response = await dio.post(
         url,
-        data: FormData.fromMap({
-          'file': await MultipartFile.fromFile(
-            file.path,
-            filename: 'image.jpg',
-          ),
-        }),
+        data: {'image': base64Image},
       );
 
       if (response.statusCode == 200) {

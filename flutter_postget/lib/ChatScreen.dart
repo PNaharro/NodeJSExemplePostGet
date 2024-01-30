@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
@@ -66,15 +67,13 @@ class _ChatScreenState extends State<ChatScreen> {
 
       if (result != null && result.files.isNotEmpty) {
         File file = File(result.files.single.path!);
+        sendMessage("imagen enviada");
+        // Convertir la imagen a base64
+        List<int> imageBytes = await file.readAsBytes();
+        String base64Image = base64Encode(imageBytes);
 
-        // Enviar imagen al servidor y recibir la respuesta
-        String response = await appData.loadHttpPostByChunks(
-            'http://localhost:3000/data', file);
-
-        // Agregar la respuesta del servidor a messages si no es nula
-        if (response.isNotEmpty) {
-          appData.respueta(response);
-        }
+        // Enviar imagen en base64 al servidor y recibir la respuesta
+        await appData.enviarIMGJSON(base64Image);
       }
     } catch (e) {
       print('Error al enviar y recibir la imagen: $e');
