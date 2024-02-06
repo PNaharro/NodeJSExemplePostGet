@@ -2,9 +2,10 @@ const http = require('http');
 const express = require('express')
 const multer = require('multer');
 const url = require('url')
+const bodyParser = require('body-parser');
 
 const app = express()
-const port = process.env.PORT || 3000
+const port = process.env.PORT || 4000
 
 // Configurar la rebuda d'arxius a través de POST
 const storage = multer.memoryStorage(); // Guardarà l'arxiu a la memòria
@@ -13,6 +14,10 @@ const upload = multer({ storage: storage });
 // Tots els arxius de la carpeta 'public' estàn disponibles a través del servidor
 // http://localhost:3000/
 // http://localhost:3000/images/imgO.png
+
+app.use(bodyParser.json({ limit: '500mb' }));
+app.use(bodyParser.urlencoded({ limit: '500mb', extended: true }));
+
 app.use(express.static('public'))
 
 // Configurar per rebre dades POST en format JSON
@@ -102,25 +107,35 @@ app.post('/data', upload.single('file'), async (req, res) => {
 
 
   res.writeHead(200, { 'Content-Type': 'text/plain; charset=UTF-8' })
-  res.write("POST First line\n")
+
 
   objPost = JSON.parse(textPost.data);
+  console.log(objPost);
   console.log('Valor de "mensaje" recibido:');
   const pregunta = objPost.mensaje;
+  const imagen = objPost.image;
+  const txtimagen = objPost.imgtext;
   console.log(pregunta);
+  console.log('Valor de "image" recibido:');
+  console.log(imagen);
   // TODO: Modificar la següent funció 
-  await callOllama(res, "mistral", "Here is a story about llamas eating grass")
+  if (pregunta != null) {
+    await callOllama(res, "mistral", pregunta, "nada")
+  }
+  if (imagen != null) {
+
+    await callOllama(res, "llava", imagen, txtimagen)
+  }
 
   // El següent codi mostra com 'escriure' informació per l'usuari, cada 1.5 segons
   await new Promise(resolve => setTimeout(resolve, 1500))
-  res.write("POST Second line\n")
+
   await new Promise(resolve => setTimeout(resolve, 1500))
-  res.write("POST Third line\n")
+
   res.end("")
 })
 
-async function callOllama(userResponse, ollamaModel, query) {
-
+async function callOllama(userResponse, ollamaModel, query, imgtext) {
   return new Promise((resolve, reject) => {
     const options = {
       hostname: 'localhost',
@@ -131,33 +146,55 @@ async function callOllama(userResponse, ollamaModel, query) {
         'Content-Type': 'application/json'
       },
       rejectUnauthorized: false
-    }
+    };
 
-    const data = JSON.stringify({
-      model: ollamaModel,
-      prompt: query
-    })
+    let data;
+
+    if (ollamaModel == "mistral") {
+      data = JSON.stringify({
+        model: ollamaModel,
+        prompt: query,
+      });
+    } else if (ollamaModel == "llava") {
+      data = JSON.stringify({
+        model: ollamaModel,
+        prompt: imgtext,
+        images: [query],
+      });
+    } else {
+      // Puedes agregar más casos según sea necesario
+      console.error('Modelo no reconocido:', ollamaModel);
+      reject('Modelo no reconocido');
+      return;
+    }
 
     const req = http.request(options, (res) => {
       res.on('data', (chunk) => {
-        let obj = JSON.parse(chunk)
-        userResponse.write(obj.response);
-        console.log(obj.response)
-        // TODO: Escriure a 'userResponse' el text rebut a 'obj.response'
-
+        try {
+          let obj = JSON.parse(chunk);
+          if (obj && obj.response) {
+            userResponse.write(obj.response);
+            console.log(obj.response);
+            // TODO: Escribir a 'userResponse' el texto recibido en 'obj.response'
+          } else {
+            console.log('Respuesta no válida:', chunk);
+          }
+        } catch (error) {
+          console.error('Error al analizar el fragmento JSON:', error);
+        }
       });
       res.on('end', () => {
-        console.log("done")
-        resolve()
-      })
-    })
+        console.log("done");
+        resolve();
+      });
+    });
 
     req.on('error', (error) => {
-      console.error("Error en la sol·licitud: ", error)
-      reject(error)
-    })
+      console.error("Error en la sol·licitud: ", error);
+      reject(error);
+    });
 
-    req.write(data)
-    req.end()
-  })
+    req.write(data);
+    req.end();
+  });
 }
